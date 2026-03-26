@@ -7,9 +7,13 @@ numpy>=1.24.0
 pydub>=0.25.1
 scipy>=1.10.0
 
+# PyTorch (FunASR 依赖)
+torch>=2.0.0
+torchaudio>=2.0.0
+
 # FunASR 本地 STT (阿里云)
 funasr>=1.0.0
-funasr-streaming>=0.1.0
+# funasr-streaming>=0.1.0  # 该包已不可用，使用 funasr 内置的流式处理
 modelscope>=1.9.0
 
 # LLM API (阿里云 DashScope / OpenAI 兼容)
