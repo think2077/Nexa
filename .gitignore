@@ -1,0 +1,30 @@
+# 项目依赖
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 日志
+logs/
+*.log
+
+# 环境配置
+.env
+
+# 模型文件 (可选，如果本地存储)
+models/
+
+# Firmware
+.f pioenvs/
+.pio/
