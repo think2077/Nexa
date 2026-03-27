@@ -63,11 +63,10 @@ bool isPlaying = false;
 
 // I2S 句柄
 i2s_pin_config_t mic_pins;
-i2s_pin_config_t amp_pins;
 
 // 音频缓冲区
 static const size_t BUFFER_SIZE = 1024;
-int16_t audioBuffer[BUFFER_SIZE];
+uint8_t audioBuffer[BUFFER_SIZE * sizeof(int16_t)];  // 使用 uint8_t 数组
 
 // ==================== 函数声明 ====================
 
@@ -189,22 +188,13 @@ void initWiFi() {
 // ==================== I2S  ====================
 
 void initI2S() {
-    // 配置麦克风引脚
-    mic_pins = {
-        .mck = I2S_PIN_NO_CHANGE,
-        .sck = I2S_SCK,
-        .ws = I2S_WS,
-        .sd = I2S_SD,
-        .rd = I2S_PIN_NO_CHANGE
-    };
-
-    // 配置功放引脚
-    amp_pins = {
-        .mck = I2S_PIN_NO_CHANGE,
-        .sck = I2S_BCLK,
-        .ws = I2S_LRCLK,
-        .sd = I2S_DATA,
-        .rd = I2S_PIN_NO_CHANGE
+    // 配置麦克风引脚 (RX)
+    i2s_pin_config_t mic_pins = {
+        .mck_io_num = I2S_PIN_NO_CHANGE,
+        .bck_io_num = I2S_SCK,
+        .ws_io_num = I2S_WS,
+        .data_out_num = I2S_PIN_NO_CHANGE,
+        .data_in_num = I2S_SD
     };
 
     // I2S 配置 (麦克风 - RX)
@@ -263,7 +253,7 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
                 Serial.print("收到消息：");
                 Serial.println(jsonStr);
 
-                StaticJsonDocument<512> doc;
+                JsonDocument doc;
                 DeserializationError err = deserializeJson(doc, jsonStr);
 
                 if (!err) {
@@ -302,7 +292,7 @@ void audioCaptureTask(void* parameter) {
         if (isRecording && !isPlaying) {
             // 从 I2S 读取音频数据
             size_t bytesRead = 0;
-            i2s_read(I2S_NUM_0, audioBuffer, BUFFER_SIZE * sizeof(int16_t), &bytesRead, portMAX_DELAY);
+            i2s_read(I2S_NUM_0, audioBuffer, sizeof(audioBuffer), &bytesRead, portMAX_DELAY);
 
             if (bytesRead > 0 && wsConnected) {
                 // 发送音频数据到服务器
