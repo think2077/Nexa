@@ -87,7 +87,8 @@ class WebSocketServer:
         """处理客户端连接"""
         session = ClientSession(websocket)
         self.clients.add(session)
-        logger.info(f"新客户端连接：{session.session_id}")
+        logger.info(f"🔌 新客户端连接：{session.session_id} (来自 {websocket.remote_address})")
+        print(f"=== 新客户端连接：{session.session_id} ===")  # 确保输出
 
         try:
             # 发送欢迎消息
@@ -278,12 +279,18 @@ class WebSocketServer:
 
         logger.info(f"WebSocket 服务器启动：ws://{WEBSOCKET_HOST}:{WEBSOCKET_PORT}")
 
+        # process_request 用于处理所有路径
+        async def process_request(path, request_headers):
+            print(f"=== 收到请求：{path} ===")
+            return None  # 继续处理 WebSocket 请求
+
         async with serve(
             self.handle_client,
             WEBSOCKET_HOST,
             WEBSOCKET_PORT,
             ping_interval=30,
-            ping_timeout=10
+            ping_timeout=10,
+            process_request=process_request
         ) as server:
             await server.serve_forever()
 

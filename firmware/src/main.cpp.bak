@@ -156,13 +156,20 @@ void setup() {
 // ====================  Loop  ====================
 
 void loop() {
-    // 处理 WebSocket（始终调用，否则无法建立连接）
-    webSocket.loop();
+    // 处理 WebSocket
+    if (wsConnected) {
+        webSocket.loop();
+    }
 
     // 处理 Web 服务器
     server.handleClient();
 
-    // 重连逻辑 - 由 WebSocketsClient 库自动处理
+    // 重连逻辑
+    if (!wsConnected && wifiConnected) {
+        Serial.println("WebSocket 断开，尝试重连...");
+        delay(1000);
+        initWebSocket();
+    }
 
     if (!wifiConnected) {
         // 检查重试间隔
@@ -260,6 +267,11 @@ void initWebSocket() {
     webSocket.onEvent(webSocketEvent);
     webSocket.setReconnectInterval(5000);
     Serial.println("initWebSocket 完成");
+
+    Serial.print("连接 WebSocket 服务器: ");
+    Serial.print(WEBSOCKET_HOST);
+    Serial.print(":");
+    Serial.println(WEBSOCKET_PORT);
 }
 
 void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
@@ -316,13 +328,12 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
             // TODO: 发送到播放队列
             break;
 
-        case WStype_PING:
-            // 服务器心跳，自动回复 PONG
-            Serial.printf("收到服务器 PING\n");
-            break;
-
-        case WStype_PONG:
-            Serial.printf("收到服务器 PONG\n");
+        case WStype_ERROR:
+            Serial.println("WebSocket 错误!");
+            Serial.printf("错误类型：%d\n", type);
+            if (length > 0) {
+                Serial.printf("错误信息：%s\n", payload);
+            }
             break;
 
         default:
@@ -335,32 +346,16 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
 
 void audioCaptureTask(void* parameter) {
     Serial.println("音频捕获任务启动");
-    int readCount = 0;
-    int zeroReadCount = 0;
 
     while (true) {
         if (isRecording && !isPlaying) {
             // 从 I2S 读取音频数据
             size_t bytesRead = 0;
             i2s_read(I2S_NUM_0, audioBuffer, sizeof(audioBuffer), &bytesRead, portMAX_DELAY);
-            readCount++;
 
-            if (bytesRead > 0) {
-                if (readCount <= 10 || readCount % 50 == 0) {
-                    Serial.printf("I2S 读取：%d bytes (第 %d 次)\n", bytesRead, readCount);
-                }
-                zeroReadCount = 0;
-
-                if (wsConnected) {
-                    // 发送音频数据到服务器
-                    webSocket.sendBIN(audioBuffer, bytesRead);
-                }
-            } else {
-                zeroReadCount++;
-                if (zeroReadCount >= 5) {
-                    Serial.println("警告：I2S 持续返回 0 字节，检查麦克风连接！");
-                    zeroReadCount = 0;
-                }
+            if (bytesRead > 0 && wsConnected) {
+                // 发送音频数据到服务器
+                webSocket.sendBIN(audioBuffer, bytesRead);
             }
         } else {
             delay(10);
