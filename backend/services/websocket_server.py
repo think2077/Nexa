@@ -18,7 +18,7 @@ from config import (
     VAD_THRESHOLD, SILENCE_MAX_DURATION
 )
 from services import FunASRService, LLMService, EdgeTTSService
-from utils import SimpleVAD, pcm_to_float, float_to_pcm
+from utils import SimpleVAD, WebRtcVAD, pcm_to_float, float_to_pcm
 
 
 class ClientSession:
@@ -29,7 +29,8 @@ class ClientSession:
         self.session_id = id(self)
         self.is_speaking = False  # 客户端是否在播放 AI 回复
         self.audio_buffer: deque = deque()  # 接收的音频缓冲
-        self.vad = SimpleVAD()
+        # 使用 WebRTC VAD 替代简单 VAD，能更好地区分人声和噪音
+        self.vad = WebRtcVAD(mode=2)  # mode=2 是推荐值，平衡灵敏度和抗噪
         self.state = "idle"  # idle, listening, processing, speaking
 
     def reset(self):
