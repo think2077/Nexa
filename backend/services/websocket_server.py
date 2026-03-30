@@ -139,25 +139,36 @@ class WebSocketServer:
 
     async def process_audio(self, session: ClientSession, audio_bytes: bytes):
         """处理音频数据"""
+        # 调试：打印收到的音频数据
+        print(f"=== 收到音频：{len(audio_bytes)} bytes, state={session.state} ===")
+
         if session.state == "speaking":
             # 正在播放 AI 回复，忽略输入（半双工）
+            print("状态：speaking，忽略音频")
             return
 
         # 转换为 numpy 数组
         audio_float = pcm_to_float(audio_bytes)
 
+        # 调试：打印能量
+        energy = float(np.sqrt(np.mean(audio_float ** 2)))
+        print(f"音频能量：{energy:.4f}, VAD 阈值：{VAD_THRESHOLD}")
+
         # VAD 检测
         is_voice, sentence = session.vad.add_audio(audio_float)
+        print(f"VAD 结果：is_voice={is_voice}, sentence={sentence is not None}")
 
         if is_voice:
-            session.state = "listening"
+            if session.state != "listening":
+                # 状态变化时才发送
+                session.state = "listening"
+                print(f"VAD: 开始录音")
+                # 通知客户端正在录音
+                await self.send_to_client(session, {
+                    "type": "status",
+                    "state": "listening"
+                })
             session.audio_buffer.append(audio_float)
-
-            # 通知客户端正在录音
-            await self.send_to_client(session, {
-                "type": "status",
-                "state": "listening"
-            })
 
         elif sentence is not None:
             # 检测到完整语句，开始处理

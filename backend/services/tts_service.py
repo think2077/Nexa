@@ -39,17 +39,60 @@ class EdgeTTSService:
         """
         try:
             import edge_tts
+            import subprocess
+            import tempfile
+            import os
 
-            # 创建通信对象
-            communicate = edge_tts.Communicate(text, self.voice)
+            # 创建通信对象，指定输出格式为 16kHz
+            # Edge TTS 默认输出 24kHz，需要使用 ffmpeg 转换
+            communicate = edge_tts.Communicate(
+                text,
+                self.voice,
+                rate="+0%",
+                volume="+0%"
+            )
 
-            # 合成音频
+            # 合成音频（24kHz）
             audio_data = b""
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
                     audio_data += chunk["data"]
 
-            logger.info(f"TTS 合成完成，大小：{len(audio_data)} bytes")
+            # 使用 ffmpeg 重采样到 16kHz
+            try:
+                # 写入临时文件
+                with tempfile.NamedTemporaryFile(suffix='.raw', delete=False) as tmp_in:
+                    tmp_in_path = tmp_in.name
+                    tmp_in.write(audio_data)
+
+                tmp_out_path = tmp_in_path + '.16k.raw'
+
+                # 使用 ffmpeg 重采样：24kHz -> 16kHz
+                result = subprocess.run(
+                    [
+                        'ffmpeg', '-y',
+                        '-f', 's16le', '-ar', '24000', '-ac', '1', '-i', tmp_in_path,
+                        '-f', 's16le', '-ar', '16000', '-ac', '1', tmp_out_path
+                    ],
+                    capture_output=True,
+                    timeout=30
+                )
+
+                if result.returncode == 0:
+                    with open(tmp_out_path, 'rb') as f:
+                        audio_data = f.read()
+                    logger.info(f"TTS 合成完成，大小：{len(audio_data)} bytes (16kHz)")
+                else:
+                    logger.warning(f"ffmpeg 重采样失败：{result.stderr.decode()}，使用原始音频")
+
+                # 清理临时文件
+                os.remove(tmp_in_path)
+                if os.path.exists(tmp_out_path):
+                    os.remove(tmp_out_path)
+
+            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+                logger.warning(f"ffmpeg 不可用，使用原始 24kHz 音频：{e}")
+
             return audio_data
 
         except Exception as e:

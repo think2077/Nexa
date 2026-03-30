@@ -4,6 +4,7 @@ STT Service - 语音转文字服务
 支持流式识别
 """
 import numpy as np
+import torch
 from typing import Optional, AsyncGenerator
 from loguru import logger
 from config import FUNASR_MODEL_DIR, AUDIO_SAMPLE_RATE
@@ -25,15 +26,13 @@ class FunASRService:
         try:
             from funasr import AutoModel
 
-            # 加载流式语音识别模型
-            # paraformer-zh-streaming 支持流式识别
+            # 加载离线语音识别模型（不使用流式 VAD）
             logger.info("正在加载 FunASR 语音识别模型...")
             self.model = AutoModel(
-                model="paraformer-zh-streaming",
+                model="paraformer-zh",
                 model_dir=self.model_dir,
                 device="cpu",
-                # 启用 VAD 和标点
-                vad_model="fsmn-vad",
+                # 启用标点
                 punc_model="ct-punc"
             )
             logger.info("FunASR 模型加载成功")
@@ -114,21 +113,44 @@ class FunASRService:
         try:
             # 转换为 int16
             if audio_data.dtype == np.float32:
-                audio_data = (audio_data * 32767).astype(np.int16)
+                audio_int16 = (audio_data * 32767).astype(np.int16)
+            else:
+                audio_int16 = audio_data.astype(np.int16)
 
-            # 识别
-            result = self.model.generate(
-                input=audio_data.reshape(1, -1),
-                input_sample_rate=AUDIO_SAMPLE_RATE,
-            )
+            # 确保音频长度至少 20ms (320 samples at 16kHz)
+            min_samples = int(0.02 * AUDIO_SAMPLE_RATE)
+            if len(audio_int16) < min_samples:
+                logger.warning(f"音频太短 ({len(audio_int16)} samples)，无法识别")
+                return ""
 
-            # 提取结果
-            if result and len(result) > 0:
-                text = result[0].get("text", "")
-                logger.info(f"STT 识别结果：{text}")
-                return text
+            # 使用 scipy.io.wavfile 写入临时文件
+            from scipy.io.wavfile import write as wav_write
+            import tempfile
+            import os
 
-            return ""
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
+                tmp_path = tmp_file.name
+                wav_write(tmp_path, AUDIO_SAMPLE_RATE, audio_int16)
+
+            try:
+                # 使用文件路径进行识别
+                result = self.model.generate(
+                    input=tmp_path,
+                    input_sample_rate=AUDIO_SAMPLE_RATE,
+                )
+
+                # 提取结果
+                if result and len(result) > 0:
+                    text = result[0].get("text", "")
+                    logger.info(f"STT 识别结果：{text}")
+                    return text
+
+                return ""
+
+            finally:
+                # 清理临时文件
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
 
         except Exception as e:
             logger.error(f"STT 识别失败：{e}")

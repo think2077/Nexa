@@ -24,9 +24,9 @@ AUDIO_CHANNELS = int(os.getenv("AUDIO_CHANNELS", "1"))
 AUDIO_CHUNK_DURATION = float(os.getenv("AUDIO_CHUNK_DURATION", "0.2"))
 
 # VAD 配置
-VAD_THRESHOLD = float(os.getenv("VAD_THRESHOLD", "0.5"))
+VAD_THRESHOLD = float(os.getenv("VAD_THRESHOLD", "0.3"))  # 阈值 0.3，说话时能量约 0.5+
 SPEECH_MIN_DURATION = float(os.getenv("SPEECH_MIN_DURATION", "0.5"))
-SILENCE_MAX_DURATION = float(os.getenv("SILENCE_MAX_DURATION", "1.5"))
+SILENCE_MAX_DURATION = float(os.getenv("SILENCE_MAX_DURATION", "2.0"))  # 静音 2 秒判定语句结束
 
 # 日志配置
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

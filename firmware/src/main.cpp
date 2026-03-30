@@ -348,12 +348,26 @@ void audioCaptureTask(void* parameter) {
             if (bytesRead > 0) {
                 if (readCount <= 10 || readCount % 50 == 0) {
                     Serial.printf("I2S 读取：%d bytes (第 %d 次)\n", bytesRead, readCount);
+                    // 打印前几个采样值
+                    int16_t* samples = (int16_t*)audioBuffer;
+                    Serial.printf("采样值：");
+                    for (int i = 0; i < 8 && i < bytesRead/2; i++) {
+                        Serial.printf("%d ", samples[i]);
+                    }
+                    Serial.println();
                 }
                 zeroReadCount = 0;
 
                 if (wsConnected) {
                     // 发送音频数据到服务器
                     webSocket.sendBIN(audioBuffer, bytesRead);
+                    if (readCount <= 5 || readCount % 100 == 0) {
+                        Serial.printf("发送音频：%d bytes, wsConnected=%d\n", bytesRead, wsConnected);
+                    }
+                } else {
+                    if (readCount <= 5 || readCount % 100 == 0) {
+                        Serial.printf("wsConnected=0, 无法发送音频\n");
+                    }
                 }
             } else {
                 zeroReadCount++;
