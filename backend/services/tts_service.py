@@ -43,55 +43,37 @@ class EdgeTTSService:
             import tempfile
             import os
 
-            # 创建通信对象，指定输出格式为 16kHz
-            # Edge TTS 默认输出 24kHz，需要使用 ffmpeg 转换
-            communicate = edge_tts.Communicate(
-                text,
-                self.voice,
-                rate="+0%",
-                volume="+0%"
-            )
+            # 创建临时文件
+            with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
+                tmp_path = tmp.name
 
-            # 合成音频（24kHz）
-            audio_data = b""
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    audio_data += chunk["data"]
-
-            # 使用 ffmpeg 重采样到 16kHz
             try:
-                # 写入临时文件
-                with tempfile.NamedTemporaryFile(suffix='.raw', delete=False) as tmp_in:
-                    tmp_in_path = tmp_in.name
-                    tmp_in.write(audio_data)
+                # 使用 save 方法保存为 mp3（避免 stream 被截断的问题）
+                communicate = edge_tts.Communicate(text, self.voice)
+                await communicate.save(tmp_path)
 
-                tmp_out_path = tmp_in_path + '.16k.raw'
-
-                # 使用 ffmpeg 重采样：24kHz -> 16kHz
+                # 使用 ffmpeg 将 mp3 转换为 16kHz PCM
                 result = subprocess.run(
                     [
                         'ffmpeg', '-y',
-                        '-f', 's16le', '-ar', '24000', '-ac', '1', '-i', tmp_in_path,
-                        '-f', 's16le', '-ar', '16000', '-ac', '1', tmp_out_path
+                        '-i', tmp_path,
+                        '-f', 's16le', '-ar', '16000', '-ac', '1', 'pipe:1'
                     ],
                     capture_output=True,
-                    timeout=30
+                    timeout=60
                 )
 
-                if result.returncode == 0:
-                    with open(tmp_out_path, 'rb') as f:
-                        audio_data = f.read()
-                    logger.info(f"TTS 合成完成，大小：{len(audio_data)} bytes (16kHz)")
+                if result.returncode == 0 and result.stdout:
+                    audio_data = result.stdout
+                    logger.info(f"TTS 合成完成，大小：{len(audio_data)} bytes (16kHz, {len(audio_data)/(16000*2):.2f}s)")
                 else:
-                    logger.warning(f"ffmpeg 重采样失败：{result.stderr.decode()}，使用原始音频")
+                    logger.error(f"ffmpeg 转换失败：{result.stderr.decode() if result.stderr else 'unknown error'}")
+                    return b""
 
+            finally:
                 # 清理临时文件
-                os.remove(tmp_in_path)
-                if os.path.exists(tmp_out_path):
-                    os.remove(tmp_out_path)
-
-            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-                logger.warning(f"ffmpeg 不可用，使用原始 24kHz 音频：{e}")
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
 
             return audio_data
 
