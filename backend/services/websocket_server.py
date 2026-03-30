@@ -18,7 +18,7 @@ from config import (
     VAD_THRESHOLD, SILENCE_MAX_DURATION
 )
 from services import FunASRService, LLMService, EdgeTTSService
-from utils import SimpleVAD, WebRtcVAD, pcm_to_float, float_to_pcm
+from utils import SimpleVAD, WebRtcVAD, EnhancedVAD, pcm_to_float, float_to_pcm
 
 
 class ClientSession:
@@ -29,8 +29,14 @@ class ClientSession:
         self.session_id = id(self)
         self.is_speaking = False  # 客户端是否在播放 AI 回复
         self.audio_buffer: deque = deque()  # 接收的音频缓冲
-        # 使用 WebRTC VAD 替代简单 VAD，能更好地区分人声和噪音
-        self.vad = WebRtcVAD(mode=2)  # mode=2 是推荐值，平衡灵敏度和抗噪
+        # 使用 Enhanced VAD: WebRTC + 频谱特征分析，更好地区分人声和噪音
+        self.vad = EnhancedVAD(
+            webrtc_mode=2,           # WebRTC VAD 模式 2（推荐）
+            spectral_flatness_thresh=0.70,  # 谱平坦度阈值
+            spectral_entropy_thresh=4.95,   # 谱熵阈值
+            zcr_thresh=0.20,                # 过零率阈值（最有效区分特征）
+            noise_vote_thresh=2       # 需要 2 个以上特征超过阈值才判定为噪音
+        )
         self.state = "idle"  # idle, listening, processing, speaking
 
     def reset(self):
