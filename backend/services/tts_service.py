@@ -27,12 +27,13 @@ class EdgeTTSService:
             logger.error("Edge TTS 未安装，请运行：pip install edge-tts")
             raise
 
-    async def synthesize(self, text: str) -> bytes:
+    async def synthesize(self, text: str, volume: float = 0.7) -> bytes:
         """
         合成完整音频
 
         Args:
             text: 要转换的文字
+            volume: 音量 (0.0-1.0, 默认 0.7)
 
         Returns:
             PCM 音频数据 (16kHz, 16bit, 单声道)
@@ -48,16 +49,18 @@ class EdgeTTSService:
                 tmp_path = tmp.name
 
             try:
-                # 使用 save 方法保存为 mp3
+                # 使用 save 方法保存为 mp3（不使用 SSML，因为 edge-tts 不直接支持）
                 communicate = edge_tts.Communicate(text, self.voice)
                 await communicate.save(tmp_path)
 
-                # 尝试使用 ffmpeg 转换为 PCM
+                # 使用 ffmpeg 转换为 PCM 并调整音量
+                # volume=0.5 表示 50% 音量，0.3 表示 30%
                 try:
                     result = subprocess.run(
                         [
                             'ffmpeg', '-y',
                             '-i', tmp_path,
+                            '-af', f'volume={volume}',  # 音量滤镜
                             '-f', 's16le', '-ar', '16000', '-ac', '1', 'pipe:1'
                         ],
                         capture_output=True,
@@ -69,11 +72,11 @@ class EdgeTTSService:
                         logger.info(f"TTS 合成完成 (ffmpeg)，大小：{len(audio_data)} bytes")
                         return audio_data
                 except FileNotFoundError:
-                    # ffmpeg 不可用，使用 edge_tts 直接生成音频
+                    # ffmpeg 不可用，使用 edge_tts 直接生成音频（无音量控制）
                     logger.info("ffmpeg 不可用，使用 edge_tts 流式输出")
                     pass
 
-                # 备用方案：使用流式 API 获取 PCM
+                # 备用方案：使用流式 API 获取 PCM（无音量控制）
                 audio_chunks = []
                 communicate = edge_tts.Communicate(text, self.voice)
                 async for chunk in communicate.stream():

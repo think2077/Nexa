@@ -276,8 +276,8 @@ class WebSocketServer:
                 "state": "speaking"
             })
 
-            # 合成音频
-            tts_audio = await self.tts_service.synthesize(full_response)
+            # 合成音频（音量 50%）
+            tts_audio = await self.tts_service.synthesize(full_response, volume=0.5)
 
             if tts_audio:
                 # 发送音频给客户端播放 - 分块发送以避免超过 WebSocket 消息限制
@@ -345,8 +345,8 @@ class WebSocketServer:
                 })
                 return
 
-            # 合成音频
-            tts_audio = await self.tts_service.synthesize(text)
+            # 合成音频（音量 50%）
+            tts_audio = await self.tts_service.synthesize(text, volume=0.5)
 
             if tts_audio:
                 logger.info(f"发送 TTS 音频：{len(tts_audio)} bytes")
