@@ -76,7 +76,8 @@ static const size_t BUFFER_SIZE = 1024;
 uint8_t audioBuffer[BUFFER_SIZE * sizeof(int16_t)];  // 使用 uint8_t 数组
 
 // 播放队列（全局，WebSocket 回调和播放任务都需要访问）
-static const size_t PLAY_QUEUE_SIZE = 32768;
+// 64K 样本 = 128KB = 约 4 秒音频 (16kHz, 16bit)
+static const size_t PLAY_QUEUE_SIZE = 65536;
 int16_t playQueue[PLAY_QUEUE_SIZE];
 volatile size_t playQueueHead = 0;
 volatile size_t playQueueTail = 0;
@@ -361,24 +362,49 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
             break;
 
         case WStype_BIN:
-            // 处理二进制音频数据 - 添加到播放队列
+            // 处理二进制音频数据 - 批量添加到播放队列
             {
-                Serial.printf("收到二进制数据：%d bytes\n", length);
+                Serial.printf(">>> 收到音频数据：%d bytes\n", length);
 
-                // 转换为 int16 并添加到队列
-                size_t samples = length / sizeof(int16_t);
+                // 直接将二进制数据视为 int16 数组
+                int16_t* samples = (int16_t*)payload;
+                size_t samplesCount = length / sizeof(int16_t);
+                size_t copied = 0;
 
-                // 简单处理：直接将二进制数据视为 int16 数组
-                // 注意：这里假设服务器发送的是原始 PCM16 数据
-                for (size_t i = 0; i < samples; i++) {
-                    playQueue[playQueueHead] = ((int16_t*)payload)[i];
-                    playQueueHead = (playQueueHead + 1) % PLAY_QUEUE_SIZE;
+                Serial.printf(">>> 样本数：%zu, head=%zu, tail=%zu\n", samplesCount, playQueueHead, playQueueTail);
 
-                    // 队列满了，等待播放
-                    if (playQueueHead == playQueueTail) {
-                        delay(10);
+                // 批量复制到环形队列
+                while (copied < samplesCount) {
+                    // 计算队列已用空间
+                    size_t used = (playQueueHead - playQueueTail + PLAY_QUEUE_SIZE) % PLAY_QUEUE_SIZE;
+                    size_t freeSpace = PLAY_QUEUE_SIZE - used - 1;  // 留 1 个空位避免 head==tail
+
+                    if (freeSpace == 0) {
+                        // 队列已满，等待播放
+                        delay(5);
+                        continue;
+                    }
+
+                    // 计算本次复制数量
+                    size_t toCopy = min(samplesCount - copied, freeSpace);
+                    size_t toEnd = PLAY_QUEUE_SIZE - playQueueHead;
+
+                    if (toCopy <= toEnd) {
+                        // 不需要绕界
+                        memcpy(&playQueue[playQueueHead], &samples[copied], toCopy * sizeof(int16_t));
+                        playQueueHead = (playQueueHead + toCopy) % PLAY_QUEUE_SIZE;
+                        copied += toCopy;
+                    } else {
+                        // 需要绕界：先复制到末尾
+                        memcpy(&playQueue[playQueueHead], &samples[copied], toEnd * sizeof(int16_t));
+                        playQueueHead = 0;
+                        copied += toEnd;
                     }
                 }
+
+                Serial.printf(">>> 复制完成：head=%zu, tail=%zu, 队列=%zu 样本\n",
+                    playQueueHead, playQueueTail,
+                    (playQueueHead - playQueueTail + PLAY_QUEUE_SIZE) % PLAY_QUEUE_SIZE);
             }
             break;
 

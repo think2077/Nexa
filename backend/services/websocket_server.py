@@ -296,7 +296,7 @@ class WebSocketServer:
                 for i in range(0, len(tts_audio), CHUNK_SIZE):
                     chunk = tts_audio[i:i+CHUNK_SIZE]
                     await session.websocket.send(chunk)
-                    await asyncio.sleep(0.01)  # 小块延迟
+                    await asyncio.sleep(0.005)  # 5ms 延迟，让 ESP32 有时间处理
 
                 # 发送音频结束消息
                 await self.send_to_client(session, {
