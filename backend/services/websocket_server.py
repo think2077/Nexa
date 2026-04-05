@@ -31,11 +31,11 @@ class ClientSession:
         self.audio_buffer: deque = deque()  # 接收的音频缓冲
         # 使用 Enhanced VAD: WebRTC + 频谱特征分析，更好地区分人声和噪音
         self.vad = EnhancedVAD(
-            webrtc_mode=2,           # WebRTC VAD 模式 2（推荐）
-            spectral_flatness_thresh=0.70,  # 谱平坦度阈值
-            spectral_entropy_thresh=4.95,   # 谱熵阈值
-            zcr_thresh=0.20,                # 过零率阈值（最有效区分特征）
-            noise_vote_thresh=2       # 需要 2 个以上特征超过阈值才判定为噪音
+            webrtc_mode=3,           # WebRTC VAD 模式 3（最严格）
+            spectral_flatness_thresh=0.50,  # 谱平坦度阈值（降低以提高灵敏度）
+            spectral_entropy_thresh=4.50,   # 谱熵阈值
+            zcr_thresh=0.10,                # 过零率阈值（降低以提高灵敏度）
+            noise_vote_thresh=1       # 1 个特征超过阈值就判定为噪音（更严格）
         )
         self.state = "idle"  # idle, listening, processing, speaking
 
@@ -139,6 +139,17 @@ class WebSocketServer:
                 elif msg_type == "ping":
                     await self.send_to_client(session, {"type": "pong"})
 
+                elif msg_type == "test_tts":
+                    # 测试 TTS 功能
+                    text = data.get("text", "")
+                    if text:
+                        await self.test_tts(session, text)
+                    else:
+                        await self.send_to_client(session, {
+                            "type": "error",
+                            "message": "Missing text field"
+                        })
+
         except json.JSONDecodeError:
             logger.warning("无效的 JSON 消息")
         except Exception as e:
@@ -154,16 +165,46 @@ class WebSocketServer:
             print("状态：speaking，忽略音频")
             return
 
-        # 转换为 numpy 数组
-        audio_float = pcm_to_float(audio_bytes)
+        # WebRTC VAD 需要固定帧大小 (16kHz 时 320 样本=640 bytes 每 20ms)
+        # 将大帧分割为小帧处理
+        FRAME_SIZE = 640  # 16kHz * 20ms * 2 bytes = 320 样本
 
-        # 调试：打印能量
-        energy = float(np.sqrt(np.mean(audio_float ** 2)))
-        print(f"音频能量：{energy:.4f}, VAD 阈值：{VAD_THRESHOLD}")
+        is_any_voice = False
+        last_sentence = None
 
-        # VAD 检测
-        is_voice, sentence = session.vad.add_audio(audio_float)
-        print(f"VAD 结果：is_voice={is_voice}, sentence={sentence is not None}")
+        for i in range(0, len(audio_bytes), FRAME_SIZE):
+            frame = audio_bytes[i:i+FRAME_SIZE]
+            if len(frame) < FRAME_SIZE:
+                # 不足一帧，留到下次处理
+                break
+
+            try:
+                # 转换为 numpy 数组
+                audio_float = pcm_to_float(frame)
+
+                # VAD 检测
+                is_voice, sentence = session.vad.add_audio(audio_float)
+
+                if is_voice:
+                    is_any_voice = True
+                if sentence is not None:
+                    last_sentence = sentence
+
+            except Exception as e:
+                # VAD 处理失败，跳过此帧
+                print(f"VAD 帧处理失败：{e}")
+                continue
+
+        # 使用最后一帧的结果
+        if last_sentence is not None:
+            sentence = last_sentence
+            is_voice = False  # 语句结束
+        elif is_any_voice:
+            is_voice = True
+
+        # 调试输出
+        energy = float(np.sqrt(np.mean(pcm_to_float(audio_bytes[:FRAME_SIZE]) ** 2))) if len(audio_bytes) >= FRAME_SIZE else 0
+        print(f"音频能量：{energy:.4f}, VAD 结果：is_voice={is_voice}, sentence={sentence is not None if 'sentence' in locals() else 'N/A'}")
 
         if is_voice:
             if session.state != "listening":
@@ -175,7 +216,7 @@ class WebSocketServer:
                     "type": "status",
                     "state": "listening"
                 })
-            session.audio_buffer.append(audio_float)
+            session.audio_buffer.append(pcm_to_float(audio_bytes))
 
         elif sentence is not None:
             # 检测到完整语句，开始处理
@@ -277,6 +318,42 @@ class WebSocketServer:
         elif action == "clear_history":
             self.llm_service.clear_history(session.session_id)
             logger.info("清空对话历史")
+
+    async def test_tts(self, session: ClientSession, text: str):
+        """测试 TTS 功能"""
+        try:
+            logger.info(f"TTS 测试请求：{text}")
+
+            if not self.tts_service:
+                await self.send_to_client(session, {
+                    "type": "error",
+                    "message": "TTS 服务未初始化"
+                })
+                return
+
+            # 合成音频
+            tts_audio = await self.tts_service.synthesize(text)
+
+            if tts_audio:
+                logger.info(f"发送 TTS 音频：{len(tts_audio)} bytes")
+                await self.send_to_client(session, {
+                    "type": "audio_playback",
+                    "format": "pcm16",
+                    "sample_rate": AUDIO_SAMPLE_RATE,
+                    "data": base64.b64encode(tts_audio).decode()
+                })
+            else:
+                await self.send_to_client(session, {
+                    "type": "error",
+                    "message": "TTS 合成失败"
+                })
+
+        except Exception as e:
+            logger.error(f"TTS 测试失败：{e}")
+            await self.send_to_client(session, {
+                "type": "error",
+                "message": str(e)
+            })
 
     async def send_to_client(self, session: ClientSession, data: dict):
         """发送消息给客户端"""

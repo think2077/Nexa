@@ -8,7 +8,7 @@ from .audio_utils import (
     resample_audio,
     normalize_audio
 )
-from .vad import SimpleVAD, FunASRVAD
+from .vad import SimpleVAD, FunASRVAD, WebRtcVAD, EnhancedVAD
 
 __all__ = [
     "pcm_to_float",
@@ -17,5 +17,7 @@ __all__ = [
     "resample_audio",
     "normalize_audio",
     "SimpleVAD",
-    "FunASRVAD"
+    "FunASRVAD",
+    "WebRtcVAD",
+    "EnhancedVAD"
 ]

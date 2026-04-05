@@ -25,7 +25,7 @@
 // #define WIFI_SSID "think"
 // #define WIFI_PASSWORD "12345678"
 // 服务器配置
-#define WEBSOCKET_HOST "192.168.1.23"  // Python 服务器 IP
+#define WEBSOCKET_HOST "192.168.1.18"  // Python 服务器 IP
 #define WEBSOCKET_PORT 8765
 #define WEBSOCKET_URL "/ws"
 
@@ -231,16 +231,20 @@ void initI2S() {
     };
 
     // I2S 配置 (麦克风 - RX)
+    // INMP441 是单声道麦克风，L/R 引脚决定输出声道
+    // L/R 接地 = 左声道，L/R 接 VDD = 右声道
+    // 如果 L/R 接地，请使用 I2S_CHANNEL_FMT_ONLY_LEFT
+    // 如果 L/R 接 VDD，请使用 I2S_CHANNEL_FMT_ONLY_RIGHT
     i2s_config_t rx_config = {
         .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
         .sample_rate = AUDIO_SAMPLE_RATE,
         .bits_per_sample = AUDIO_BITS_PER_SAMPLE,
-        .channel_format = I2S_CHANNEL_FMT_ONLY_RIGHT,  // 单声道
-        .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+        .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,  // 单声道左声道 (如果 L/R 接地)
+        .communication_format = I2S_COMM_FORMAT_STAND_I2S,  // I2S 标准格式
         .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
         .dma_buf_count = 4,
-        .dma_buf_len = 256,
-        .use_apll = false,
+        .dma_buf_len = 256,  // 每次 DMA 传输 256 样本
+        .use_apll = false,   // 不使用 APLL 时钟
         .tx_desc_auto_clear = false,
         .fixed_mclk = 0
     };
@@ -248,6 +252,11 @@ void initI2S() {
     // 安装麦克风驱动
     i2s_driver_install(I2S_NUM_0, &rx_config, 0, NULL);
     i2s_set_pin(I2S_NUM_0, &mic_pins);
+
+    // 设置为单声道模式 (硬件修复)
+    // 注意：INMP441 的 L/R 引脚决定左右声道
+    // L/R 接地 = 左声道，L/R 接 VDD = 右声道
+    // 固件配置需要与硬件接线匹配
 
     Serial.println("I2S 初始化完成");
 }

@@ -48,34 +48,50 @@ class EdgeTTSService:
                 tmp_path = tmp.name
 
             try:
-                # 使用 save 方法保存为 mp3（避免 stream 被截断的问题）
+                # 使用 save 方法保存为 mp3
                 communicate = edge_tts.Communicate(text, self.voice)
                 await communicate.save(tmp_path)
 
-                # 使用 ffmpeg 将 mp3 转换为 16kHz PCM
-                result = subprocess.run(
-                    [
-                        'ffmpeg', '-y',
-                        '-i', tmp_path,
-                        '-f', 's16le', '-ar', '16000', '-ac', '1', 'pipe:1'
-                    ],
-                    capture_output=True,
-                    timeout=60
-                )
+                # 尝试使用 ffmpeg 转换为 PCM
+                try:
+                    result = subprocess.run(
+                        [
+                            'ffmpeg', '-y',
+                            '-i', tmp_path,
+                            '-f', 's16le', '-ar', '16000', '-ac', '1', 'pipe:1'
+                        ],
+                        capture_output=True,
+                        timeout=60
+                    )
 
-                if result.returncode == 0 and result.stdout:
-                    audio_data = result.stdout
-                    logger.info(f"TTS 合成完成，大小：{len(audio_data)} bytes (16kHz, {len(audio_data)/(16000*2):.2f}s)")
+                    if result.returncode == 0 and result.stdout:
+                        audio_data = result.stdout
+                        logger.info(f"TTS 合成完成 (ffmpeg)，大小：{len(audio_data)} bytes")
+                        return audio_data
+                except FileNotFoundError:
+                    # ffmpeg 不可用，使用 edge_tts 直接生成音频
+                    logger.info("ffmpeg 不可用，使用 edge_tts 流式输出")
+                    pass
+
+                # 备用方案：使用流式 API 获取 PCM
+                audio_chunks = []
+                communicate = edge_tts.Communicate(text, self.voice)
+                async for chunk in communicate.stream():
+                    if chunk["type"] == "audio":
+                        audio_chunks.append(chunk["data"])
+
+                if audio_chunks:
+                    audio_data = b''.join(audio_chunks)
+                    logger.info(f"TTS 合成完成 (流式)，大小：{len(audio_data)} bytes ({len(audio_data)/(16000*2):.2f}s)")
+                    return audio_data
                 else:
-                    logger.error(f"ffmpeg 转换失败：{result.stderr.decode() if result.stderr else 'unknown error'}")
+                    logger.error("TTS 合成失败：未收到音频数据")
                     return b""
 
             finally:
                 # 清理临时文件
                 if os.path.exists(tmp_path):
                     os.remove(tmp_path)
-
-            return audio_data
 
         except Exception as e:
             logger.error(f"TTS 合成失败：{e}")

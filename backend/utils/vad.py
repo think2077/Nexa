@@ -433,8 +433,13 @@ class EnhancedVAD:
             noise_votes += 1
             logger.debug(f"  [过零率={features['zcr']:.3f} > {self.zcr_thresh}] → 噪音特征")
 
-        # 使用动态阈值判定（默认 1 票就过滤，更严格）
+        # 只要有任何一个特征超过阈值，就判定为噪音（更严格）
         is_noise = noise_votes >= self.noise_vote_thresh
+
+        # 额外检查：如果所有特征都很低（接近 0），说明是静音/极低能量，也应过滤
+        if noise_votes == 0 and features["flatness"] < 0.01 and features["entropy"] < 1.0 and features["zcr"] < 0.01:
+            logger.debug(f"  静音检测：所有特征极低 → 判定为静音，过滤")
+            return True
 
         if is_noise:
             logger.debug(f"  频谱特征：{noise_votes}/3 投票 → 判定为噪音，过滤")
@@ -449,8 +454,22 @@ class EnhancedVAD:
 
         Returns:
             True=人声，False=噪音/静音
+
+        注意：WebRTC VAD 在 16kHz 时需要固定帧大小：
+        - 10ms = 160 样本 = 320 bytes
+        - 20ms = 320 样本 = 640 bytes
+        - 30ms = 480 样本 = 960 bytes
         """
         try:
+            # 确保帧大小正确 (16kHz 时必须是 320/640/960 字节)
+            if len(audio_bytes) not in [320, 640, 960]:
+                # 如果帧大小不对，尝试截断或填充到 640 字节 (20ms)
+                if len(audio_bytes) > 640:
+                    audio_bytes = audio_bytes[:640]
+                elif len(audio_bytes) < 640:
+                    # 填充静音
+                    audio_bytes = audio_bytes + b'\x00' * (640 - len(audio_bytes))
+
             return self.vad.is_speech(audio_bytes, self.sample_rate)
         except Exception as e:
             logger.warning(f"WebRTC VAD 检测失败：{e}")

@@ -3,7 +3,13 @@ Nexa AI Backend - 主程序入口
 """
 import asyncio
 import sys
+import os
 from pathlib import Path
+
+# 添加 ffmpeg 到 PATH
+ffmpeg_path = "/usr/local/ffmpeg/bin"
+if ffmpeg_path not in os.environ.get("PATH", ""):
+    os.environ["PATH"] = ffmpeg_path + os.pathsep + os.environ.get("PATH", "")
 
 # 添加项目路径
 sys.path.insert(0, str(Path(__file__).parent))
