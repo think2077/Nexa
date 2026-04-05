@@ -56,8 +56,8 @@ WebServer server(80);
 // 状态标志
 bool wifiConnected = false;
 bool wsConnected = false;
-bool isRecording = true;
-bool isPlaying = false;
+volatile bool isRecording = true;
+volatile bool isPlaying = false;
 
 // 重连控制
 int wifiRetryCount = 0;
@@ -74,6 +74,21 @@ i2s_pin_config_t mic_pins;
 // 音频缓冲区
 static const size_t BUFFER_SIZE = 1024;
 uint8_t audioBuffer[BUFFER_SIZE * sizeof(int16_t)];  // 使用 uint8_t 数组
+
+// 播放队列（全局，WebSocket 回调和播放任务都需要访问）
+static const size_t PLAY_QUEUE_SIZE = 32768;
+int16_t playQueue[PLAY_QUEUE_SIZE];
+volatile size_t playQueueHead = 0;
+volatile size_t playQueueTail = 0;
+
+// I2S 功放引脚
+i2s_pin_config_t amp_pins = {
+    .mck_io_num = I2S_PIN_NO_CHANGE,
+    .bck_io_num = I2S_BCLK,
+    .ws_io_num = I2S_LRCLK,
+    .data_out_num = I2S_DATA,
+    .data_in_num = I2S_PIN_NO_CHANGE
+};
 
 // ==================== 函数声明 ====================
 
@@ -305,24 +320,66 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
 
                 if (!err) {
                     const char* msgType = doc["type"];
+                    Serial.printf("消息类型：%s\n", msgType);
 
-                    if (strcmp(msgType, "audio_playback") == 0) {
-                        // 收到音频播放数据
-                        const char* format = doc["format"];
-                        const char* data = doc["data"];
-
-                        // Base64 解码并发送到播放队列
-                        // TODO: 实现 Base64 解码和播放队列
-                        Serial.println("收到音频播放数据");
+                    if (strcmp(msgType, "audio_start") == 0) {
+                        // 音频播放开始
+                        Serial.println("=== 音频播放开始 ===");
+                        isPlaying = true;
+                        playQueueHead = 0;
+                        playQueueTail = 0;
+                        Serial.printf("isPlaying 设置为：%d\n", isPlaying);
                     }
+                    else if (strcmp(msgType, "audio_end") == 0) {
+                        // 音频播放结束
+                        Serial.println("=== 音频播放结束 ===");
+                        // 等待队列播放完成
+                        while (playQueueHead != playQueueTail) {
+                            delay(10);
+                        }
+                        isPlaying = false;
+                        // 切换到录音模式
+                        isRecording = true;
+                        Serial.println("=== 切换回录音模式 ===");
+                    }
+                    else if (strcmp(msgType, "status") == 0) {
+                        // 状态更新
+                        const char* state = doc["state"];
+                        Serial.printf("状态更新：%s\n", state);
+                        if (strcmp(state, "speaking") == 0) {
+                            isRecording = false;  // AI 播放时停止录音
+                            Serial.println("isRecording = false (AI 播放中)");
+                        } else if (strcmp(state, "listening") == 0) {
+                            isRecording = true;   // 恢复录音
+                            Serial.println("isRecording = true (恢复录音)");
+                        }
+                    }
+                } else {
+                    Serial.printf("JSON 解析失败：%s\n", err.c_str());
                 }
             }
             break;
 
         case WStype_BIN:
-            // 处理二进制音频数据
-            Serial.printf("收到二进制数据：%d bytes\n", length);
-            // TODO: 发送到播放队列
+            // 处理二进制音频数据 - 添加到播放队列
+            {
+                Serial.printf("收到二进制数据：%d bytes\n", length);
+
+                // 转换为 int16 并添加到队列
+                size_t samples = length / sizeof(int16_t);
+
+                // 简单处理：直接将二进制数据视为 int16 数组
+                // 注意：这里假设服务器发送的是原始 PCM16 数据
+                for (size_t i = 0; i < samples; i++) {
+                    playQueue[playQueueHead] = ((int16_t*)payload)[i];
+                    playQueueHead = (playQueueHead + 1) % PLAY_QUEUE_SIZE;
+
+                    // 队列满了，等待播放
+                    if (playQueueHead == playQueueTail) {
+                        delay(10);
+                    }
+                }
+            }
             break;
 
         case WStype_PING:
@@ -393,28 +450,75 @@ void audioCaptureTask(void* parameter) {
 
 // ==================== 音频播放  ====================
 
-// 播放队列（简单实现）
-static const size_t PLAY_QUEUE_SIZE = 8192;
-int16_t playQueue[PLAY_QUEUE_SIZE];
-size_t playQueueHead = 0;
-size_t playQueueTail = 0;
-
 void audioPlayTask(void* parameter) {
-    Serial.println("音频播放任务启动");
+    Serial.println("=== 音频播放任务启动 ===");
+    delay(100);  // 等待串口输出完成
+
+    Serial.printf("I2S_NUM_1 初始化，BCLK=%d, LRCLK=%d, DATA=%d\n", I2S_BCLK, I2S_LRCLK, I2S_DATA);
+    delay(100);
+
+    // I2S 配置 (功放 - TX)
+    i2s_config_t tx_config = {
+        .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
+        .sample_rate = AUDIO_SAMPLE_RATE,
+        .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
+        .channel_format = I2S_CHANNEL_FMT_ONLY_RIGHT,
+        .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+        .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+        .dma_buf_count = 4,
+        .dma_buf_len = 256,
+        .use_apll = false,
+        .tx_desc_auto_clear = false,
+        .fixed_mclk = 0
+    };
+
+    // 安装功放驱动
+    esp_err_t ret = i2s_driver_install(I2S_NUM_1, &tx_config, 0, NULL);
+    Serial.printf("I2S 驱动安装：%d\n", ret);
+    delay(100);
+
+    ret = i2s_set_pin(I2S_NUM_1, &amp_pins);
+    Serial.printf("I2S 引脚设置：%d\n", ret);
+    delay(100);
+
+    Serial.println("=== 播放任务就绪 ===");
+
+    int loopCount = 0;
+    int playCount = 0;
+    bool everPlayed = false;
 
     while (true) {
-        if (isPlaying && playQueueHead != playQueueTail) {
-            // 从播放队列读取数据
-            size_t samplesToPlay = min((size_t)256, (playQueueHead - playQueueTail + PLAY_QUEUE_SIZE) % PLAY_QUEUE_SIZE);
+        loopCount++;
 
-            if (samplesToPlay > 0) {
-                // TODO: 切换到功放模式并播放
-                // i2s_set_pin(I2S_NUM_0, &amp_pins);
-                // i2s_write(I2S_NUM_0, ...);
-
-                playQueueTail = (playQueueTail + samplesToPlay) % PLAY_QUEUE_SIZE;
+        if (isPlaying) {
+            if (!everPlayed) {
+                Serial.println(">>> isPlaying=true, 等待数据...");
+                everPlayed = true;
             }
+
+            if (playQueueHead != playQueueTail) {
+                // 计算可用数据量
+                size_t available = (playQueueHead - playQueueTail + PLAY_QUEUE_SIZE) % PLAY_QUEUE_SIZE;
+                size_t samplesToPlay = min((size_t)256, available);
+
+                if (samplesToPlay > 0) {
+                    // 播放音频
+                    size_t bytesWritten = 0;
+                    esp_err_t ret = i2s_write(I2S_NUM_1, &playQueue[playQueueTail], samplesToPlay * sizeof(int16_t), &bytesWritten, portMAX_DELAY);
+                    playQueueTail = (playQueueTail + samplesToPlay) % PLAY_QUEUE_SIZE;
+                    playCount++;
+
+                    if (playCount <= 10 || playCount % 100 == 0) {
+                        Serial.printf("播放进度：%d 次，bytes=%d, ret=%d\n", playCount, bytesWritten, ret);
+                    }
+                }
+            } else if (loopCount % 100 == 0) {
+                Serial.printf("等待数据：playQueueHead=%zu, playQueueTail=%zu\n", playQueueHead, playQueueTail);
+            }
+        } else if (loopCount % 100 == 0) {
+            Serial.printf("等待播放：isPlaying=%d\n", isPlaying);
         }
+
         delay(10);
     }
 }

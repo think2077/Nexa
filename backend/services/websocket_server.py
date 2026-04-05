@@ -280,13 +280,27 @@ class WebSocketServer:
             tts_audio = await self.tts_service.synthesize(full_response)
 
             if tts_audio:
-                # 发送音频给客户端播放
+                # 发送音频给客户端播放 - 分块发送以避免超过 WebSocket 消息限制
                 logger.info(f"发送 TTS 音频：{len(tts_audio)} bytes")
+
+                # 先发送音频开始消息
                 await self.send_to_client(session, {
-                    "type": "audio_playback",
+                    "type": "audio_start",
                     "format": "pcm16",
                     "sample_rate": AUDIO_SAMPLE_RATE,
-                    "data": base64.b64encode(tts_audio).decode()
+                    "total_bytes": len(tts_audio)
+                })
+
+                # 分块发送音频数据（每块 8KB）
+                CHUNK_SIZE = 8 * 1024
+                for i in range(0, len(tts_audio), CHUNK_SIZE):
+                    chunk = tts_audio[i:i+CHUNK_SIZE]
+                    await session.websocket.send(chunk)
+                    await asyncio.sleep(0.01)  # 小块延迟
+
+                # 发送音频结束消息
+                await self.send_to_client(session, {
+                    "type": "audio_end"
                 })
 
                 # 等待播放完成（估算时间）
@@ -385,7 +399,8 @@ class WebSocketServer:
             WEBSOCKET_PORT,
             ping_interval=30,
             ping_timeout=10,
-            process_request=process_request
+            process_request=process_request,
+            max_size=None  # 禁用消息大小限制
         ) as server:
             await server.serve_forever()
 
