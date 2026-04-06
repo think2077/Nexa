@@ -327,18 +327,28 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
                         // 音频播放开始
                         Serial.println("=== 音频播放开始 ===");
                         isPlaying = true;
+                        // 清空队列，避免累积旧数据
                         playQueueHead = 0;
                         playQueueTail = 0;
-                        Serial.printf("isPlaying 设置为：%d\n", isPlaying);
+                        Serial.printf("队列已重置：head=%zu, tail=%zu\n", playQueueHead, playQueueTail);
                     }
                     else if (strcmp(msgType, "audio_end") == 0) {
                         // 音频播放结束
                         Serial.println("=== 音频播放结束 ===");
-                        // 等待队列播放完成
-                        while (playQueueHead != playQueueTail) {
+                        // 等待队列播放完成（最多等待 5 秒）
+                        int waitCount = 0;
+                        while (playQueueHead != playQueueTail && waitCount < 500) {
                             delay(10);
+                            waitCount++;
+                        }
+                        if (waitCount >= 500) {
+                            Serial.printf("警告：队列未清空，强制重置 (head=%zu, tail=%zu)\n",
+                                playQueueHead, playQueueTail);
                         }
                         isPlaying = false;
+                        // 清空队列
+                        playQueueHead = 0;
+                        playQueueTail = 0;
                         // 切换到录音模式
                         isRecording = true;
                         Serial.println("=== 切换回录音模式 ===");
