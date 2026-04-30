@@ -28,5 +28,10 @@ VAD_THRESHOLD = float(os.getenv("VAD_THRESHOLD", "0.3"))  # 阈值 0.3，说话�
 SPEECH_MIN_DURATION = float(os.getenv("SPEECH_MIN_DURATION", "0.5"))
 SILENCE_MAX_DURATION = float(os.getenv("SILENCE_MAX_DURATION", "2.0"))  # 静音 2 秒判定语句结束
 
+# Piper TTS 配置
+PIPER_PATH = os.getenv("PIPER_PATH", "/usr/local/bin/piper")
+PIPER_MODEL_PATH = os.getenv("PIPER_MODEL_PATH", "")
+PIPER_CONFIG_PATH = os.getenv("PIPER_CONFIG_PATH", "")
+
 # 日志配置
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

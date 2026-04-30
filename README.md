@@ -8,6 +8,7 @@ Nexa 是一个完整的 AI 语音对话系统，包含：
 - **ESP32-S3 硬件端**: 音频采集 + 播放 + WiFi 传输
 - **Python 后端**: STT + LLM + TTS 完整 AI 链路
 - **本地部署 FunASR**: 阿里云达摩院开源语音识别，支持流式识别
+- **本地 Piper TTS**: 快速离线语音合成，无需网络连接
 
 ---
 
@@ -46,7 +47,8 @@ Nexa 是一个完整的 AI 语音对话系统，包含：
   │                            │                  ▼         │
   │  ┌─────────────┐   ┌─────────────────────────────┐     │
   │  │ 音频播放    │◄──│ TTS 服务                     │     │
-  │  │ (ESP32)     │   │ Edge TTS (免费高质量)        │     │
+  │  │ (ESP32)     │   │ Piper (本地离线，首选)       │     │
+  │  └─────────────┘   │ Edge TTS (备用)              │     │
   │  └─────────────┘   └─────────────────────────────┘     │
   └─────────────────────────────────────────────────────────┘
 ```
@@ -77,6 +79,26 @@ pip install -r requirements.txt
 cp .env.example .env
 # 编辑 .env 填入 DASHSCOPE_API_KEY
 ```
+
+### 1.5 安装 Piper TTS（可选，推荐）
+
+Piper 是本地离线 TTS，响应更快且无需网络请求。
+
+```bash
+# 运行自动安装脚本
+bash scripts/install_piper.sh
+
+# 下载中文语音模型
+bash scripts/download_piper_models.sh
+```
+
+然后在 `.env` 中配置：
+```bash
+# Piper TTS 配置
+PIPER_MODEL_PATH=/Users/yourname/piper/models/zh-cnxiaoxiao-high.onnx
+```
+
+详细说明请参考 [docs/PIPER_TTS_SETUP.md](docs/PIPER_TTS_SETUP.md)
 
 ### 2. 启动后端服务
 

@@ -17,7 +17,7 @@ from config import (
     AUDIO_SAMPLE_RATE, AUDIO_CHUNK_DURATION,
     VAD_THRESHOLD, SILENCE_MAX_DURATION
 )
-from services import FunASRService, LLMService, EdgeTTSService
+from services import FunASRService, LLMService, PiperTTSService, EdgeTTSService
 from utils import SimpleVAD, WebRtcVAD, EnhancedVAD, pcm_to_float, float_to_pcm
 
 
@@ -80,12 +80,17 @@ class WebSocketServer:
             self.llm_service = LLMFallbackService()
 
         try:
-            self.tts_service = EdgeTTSService()
-            logger.info("✓ TTS 服务 (Edge TTS) 初始化成功")
+            self.tts_service = PiperTTSService()
+            logger.info("✓ TTS 服务 (Piper 本地 TTS) 初始化成功")
         except Exception as e:
-            logger.error(f"TTS 服务初始化失败：{e}")
-            from services import OpenAITTSService
-            self.tts_service = OpenAITTSService()
+            logger.warning(f"Piper TTS 初始化失败：{e}，将使用 Edge TTS 作为备用")
+            try:
+                self.tts_service = EdgeTTSService()
+                logger.info("✓ TTS 服务 (Edge TTS) 初始化成功")
+            except Exception as e2:
+                logger.error(f"TTS 服务初始化失败：{e2}")
+                from services import OpenAITTSService
+                self.tts_service = OpenAITTSService()
 
         self._services_initialized = True
         logger.info("AI 服务初始化完成")

@@ -83,13 +83,21 @@ class LLMService:
         try:
             # 添加用户消息到历史
             self.add_to_history(session_id, "user", message)
+            logger.info(f"用户消息：{message}")
 
-            # 构建系统提示
-            system_prompt = """你是一个智能语音助手，通过语音与用户对话。请注意：
-1. 回答要简洁明了，避免过长的句子
-2. 使用口语化的表达方式
-3. 避免使用特殊符号和格式
-4. 如果是数学公式或代码，请用自然语言描述"""
+            # 构建系统提示 - 美美 Kitty 猫人设
+            system_prompt = """你叫美美，是一只可爱的粉色 Kitty 猫咪，喜欢跟小朋友聊天。
+
+说话风格：
+- 简短、口语化、温柔可爱
+- 绝对不要用 emoji 表情或符号（如^_^、(≧∇≦) 等），因为语音合成会把它们念出来
+- 只用纯中文文字回复
+- 主动关心小朋友，会问问题
+
+注意：
+- 用户的话是语音转文字过来的，可能不完整或有错别字
+- 如果用户的话不是完整的句子或问题，只是片段词语，就不要回复
+- 如果用户是在跟你打招呼或问好，正常回应介绍自己。"""
 
             # 流式请求
             response = await self.client.chat.completions.create(
@@ -104,12 +112,17 @@ class LLMService:
 
             # 收集完整回复
             full_response = ""
+            chunk_count = 0
 
             async for chunk in response:
+                logger.debug(f"LLM chunk: {chunk}")
                 if chunk.choices and chunk.choices[0].delta.content:
                     text = chunk.choices[0].delta.content
                     full_response += text
+                    chunk_count += 1
                     yield text
+
+            logger.info(f"LLM 完整回复 ({chunk_count} chunks): {full_response}")
 
             # 添加助手回复到历史
             self.add_to_history(session_id, "assistant", full_response)
