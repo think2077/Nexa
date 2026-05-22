@@ -4,7 +4,7 @@
 
 set -e
 
-PIPER_VERSION="1.2.0"
+PIPER_VERSION="2023.11.14-2"
 INSTALL_DIR="${PIPER_INSTALL_DIR:-$HOME/piper}"
 MODEL_DIR="${PIPER_MODEL_DIR:-$HOME/piper/models}"
 
@@ -56,7 +56,7 @@ download_piper() {
     fi
 
     local filename="piper_${os_name}_${arch}.tar.gz"
-    local download_url="https://github.com/rhasspy/piper/releases/download/v${PIPER_VERSION}/${filename}"
+    local download_url="https://github.com/rhasspy/piper/releases/download/${PIPER_VERSION}/${filename}"
 
     echo "正在下载 Piper: ${download_url}"
 
@@ -74,11 +74,12 @@ download_piper() {
 
 # 下载中文语音模型
 download_chinese_model() {
-    local model_name="${1:-zh-cnxiaoxiao}"
-    local quality="${2:-high}"
+    local model_name="${1:-xiao_ya}"
+    local quality="${2:-medium}"
 
-    local filename="${model_name}_${quality}.onnx"
-    local config_filename="${model_name}_${quality}.onnx.json"
+    # HuggingFace 上的实际文件名格式：zh_CN-{model_name}-{quality}.onnx
+    local filename="zh_CN-${model_name}-${quality}.onnx"
+    local config_filename="zh_CN-${model_name}-${quality}.onnx.json"
     local base_url="https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_CN/${model_name}/${quality}"
 
     echo "正在下载中文语音模型：${model_name} (${quality})"
@@ -111,41 +112,47 @@ main() {
     echo "3. 下载中文语音模型..."
 
     # 提供模型选择
-    echo "请选择语音模型质量:"
-    echo "  1) high  - 高质量 (约 100MB，推荐)"
-    echo "  2) medium - 中等质量 (约 50MB)"
-    echo "  3) low   - 低质量 (约 20MB，最快)"
-    read -p "请选择 [1/2/3] (默认：1): " quality_choice
+    echo "可选语音模型:"
+    echo "  1) xiao_ya (medium) - 推荐"
+    echo "  2) chaowen (medium)"
+    echo "  3) huayan (medium)"
+    read -p "请选择 [1/2/3] (默认：1): " model_choice
 
-    case $quality_choice in
-        1) quality="high" ;;
-        2) quality="medium" ;;
-        3) quality="low" ;;
-        *) quality="high" ;;
+    case $model_choice in
+        1) model="xiao_ya" ;;
+        2) model="chaowen" ;;
+        3) model="huayan" ;;
+        *) model="xiao_ya" ;;
     esac
 
-    download_chinese_model "zh-cnxiaoxiao" "$quality"
+    quality="medium"
+
+    download_chinese_model "$model" "$quality"
 
     echo ""
     echo "========================================"
     echo "安装完成!"
     echo "========================================"
     echo ""
-    echo "Piper 路径：$INSTALL_DIR/piper"
-    echo "模型路径：$MODEL_DIR/zh-cnxiaoxiao_${quality}.onnx"
+    echo "Piper 路径：$INSTALL_DIR/piper/piper"
+    echo "模型路径：$MODEL_DIR/zh_CN-${model}-${quality}.onnx"
     echo ""
     echo "请在 .env 文件中添加:"
-    echo "  PIPER_PATH=$INSTALL_DIR/piper"
-    echo "  PIPER_MODEL_PATH=$MODEL_DIR/zh-cnxiaoxiao_${quality}.onnx"
+    echo "  PIPER_PATH=$INSTALL_DIR/piper/piper"
+    echo "  PIPER_MODEL_PATH=$MODEL_DIR/zh_CN-${model}-${quality}.onnx"
     echo ""
 
     # 测试安装
     echo "测试安装..."
-    echo "你好，这是 Piper 语音合成测试。" | "$INSTALL_DIR/piper" -m "$MODEL_DIR/zh-cnxiaoxiao_${quality}.onnx" -f pipe --output-raw | \
-        ffplay -nodisp -autoexit -ar 16000 -ac 1 -f s16le -
-
-    echo ""
-    echo "如果听到声音，说明安装成功!"
+    if command -v ffplay &> /dev/null; then
+        echo "你好，这是 Piper 语音合成测试。" | "$INSTALL_DIR/piper/piper" -m "$MODEL_DIR/zh_CN-${model}-${quality}.onnx" -f pipe --output-raw | \
+            ffplay -nodisp -autoexit -ar 16000 -ac 1 -f s16le -
+        echo ""
+        echo "如果听到声音，说明安装成功!"
+    else
+        echo "未检测到 ffplay (ffmpeg)，跳过播放测试。"
+        echo "安装 brew install ffmpeg 后可测试播放。"
+    fi
 }
 
 # 运行安装

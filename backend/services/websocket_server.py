@@ -15,7 +15,8 @@ from collections import deque
 from config import (
     WEBSOCKET_HOST, WEBSOCKET_PORT,
     AUDIO_SAMPLE_RATE, AUDIO_CHUNK_DURATION,
-    VAD_THRESHOLD, SILENCE_MAX_DURATION
+    VAD_THRESHOLD, SILENCE_MAX_DURATION,
+    PIPER_MODEL_PATH
 )
 from services import FunASRService, LLMService, PiperTTSService, EdgeTTSService
 from utils import SimpleVAD, WebRtcVAD, EnhancedVAD, pcm_to_float, float_to_pcm
@@ -80,7 +81,7 @@ class WebSocketServer:
             self.llm_service = LLMFallbackService()
 
         try:
-            self.tts_service = PiperTTSService()
+            self.tts_service = PiperTTSService(model_path=PIPER_MODEL_PATH)
             logger.info("✓ TTS 服务 (Piper 本地 TTS) 初始化成功")
         except Exception as e:
             logger.warning(f"Piper TTS 初始化失败：{e}，将使用 Edge TTS 作为备用")

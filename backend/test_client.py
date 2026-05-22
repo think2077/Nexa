@@ -10,12 +10,15 @@ from pathlib import Path
 from loguru import logger
 
 import websockets
-from config import WEBSOCKET_HOST, WEBSOCKET_PORT, AUDIO_SAMPLE_RATE
+from config import WEBSOCKET_PORT, AUDIO_SAMPLE_RATE
+
+# 服务器绑定地址是 0.0.0.0，但客户端必须连接 127.0.0.1 或 localhost
+WEBSOCKET_CLIENT_HOST = "127.0.0.1"
 
 
 async def test_connection():
     """测试 WebSocket 连接"""
-    uri = f"ws://{WEBSOCKET_HOST}:{WEBSOCKET_PORT}"
+    uri = f"ws://{WEBSOCKET_CLIENT_HOST}:{WEBSOCKET_PORT}"
 
     logger.info(f"尝试连接：{uri}")
 
@@ -41,7 +44,7 @@ async def test_with_audio_file(audio_file: str):
     Args:
         audio_file: WAV 文件路径
     """
-    uri = f"ws://{WEBSOCKET_HOST}:{WEBSOCKET_PORT}"
+    uri = f"ws://{WEBSOCKET_CLIENT_HOST}:{WEBSOCKET_PORT}"
 
     # 读取 WAV 文件
     with wave.open(str(audio_file), 'rb') as wf:
@@ -102,7 +105,7 @@ async def test_with_audio_file(audio_file: str):
 
 async def test_manual_text():
     """手动输入文字测试 TTS"""
-    uri = f"ws://{WEBSOCKET_HOST}:{WEBSOCKET_PORT}"
+    uri = f"ws://{WEBSOCKET_CLIENT_HOST}:{WEBSOCKET_PORT}"
 
     async with websockets.connect(uri) as websocket:
         # 接收欢迎消息
